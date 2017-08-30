@@ -1,10 +1,18 @@
 #!/bin/bash
 if [ ! -f /usr/share/nginx/www/wp-config.php ]; then
 
+  # Download and install latest Wordpress
+  curl -o /usr/share/nginx/latest.tar.gz https://wordpress.org/latest.tar.gz
+  cd /usr/share/nginx/ && tar xvf latest.tar.gz && rm latest.tar.gz
+  mv /usr/share/nginx/html/5* /usr/share/nginx/wordpress
+  cp -a /usr/share/nginx/wordpress/* /usr/share/nginx/www
+  rm -rf /usr/share/nginx/wordpress
+  chown -R www-data:www-data /usr/share/nginx/www
+
   # Here we generate random passwords (thank you pwgen!). 
   # The first are for wordpress admin user, the last batch for random keys in wp-config.php
   SQLITE_DB_FILE="wordpress.db"
-  SQLITE_DB_PATH="/usr/share/nginx/www/"
+  SQLITE_DB_PATH="/usr/share/nginx/www/wp-database/"
   WORDPRESS_PASSWORD=`pwgen -c -n -1 12`
   #This is so the passwords show up in logs.
   echo wordpress password: $WORDPRESS_PASSWORD
@@ -47,10 +55,17 @@ if ( count( \$plugins ) === 0 ) {
 }
 ENDL
 
-  touch /usr/share/nginx/www/wordpress.db
-  chown www-data:www-data /usr/share/nginx/www/wordpress.db
+  # SQlite database setup
+  mkdir -p $SQLITE_DB_PATH
+  touch $SQLITE_DB_PATH$SQLITE_DB_FILE
+  chown www-data:www-data $SQLITE_DB_PATH$SQLITE_DB_FILE
+
+  # Wordpress config
   chown www-data:www-data /usr/share/nginx/www/wp-config.php
 fi
+
+# Replace environment
+envsubst < /etc/nginx/conf.d/mysite.template > /etc/nginx/sites-available/default
 
 # start all the services
 /usr/local/bin/supervisord -n
