@@ -1,21 +1,18 @@
 #!/bin/bash
 if [ ! -f /usr/share/nginx/www/wp-config.php ]; then
-  #mysql has to be started this way as it doesn't work to call from /etc/init.d
-  /usr/bin/mysqld_safe &
-  sleep 10s
-  # Here we generate random passwords (thank you pwgen!). The first two are for mysql users, the last batch for random keys in wp-config.php
-  WORDPRESS_DB="wordpress"
-  MYSQL_PASSWORD=`pwgen -c -n -1 12`
+
+  # Here we generate random passwords (thank you pwgen!). 
+  # The first are for wordpress admin user, the last batch for random keys in wp-config.php
+  SQLITE_DB_FILE="wordpress.db"
+  SQLITE_DB_PATH="/usr/share/nginx/www/"
   WORDPRESS_PASSWORD=`pwgen -c -n -1 12`
   #This is so the passwords show up in logs.
-  echo mysql root password: $MYSQL_PASSWORD
   echo wordpress password: $WORDPRESS_PASSWORD
-  echo $MYSQL_PASSWORD > /mysql-root-pw.txt
   echo $WORDPRESS_PASSWORD > /wordpress-db-pw.txt
 
-  sed -e "s/database_name_here/$WORDPRESS_DB/
-  s/username_here/$WORDPRESS_DB/
-  s/password_here/$WORDPRESS_PASSWORD/
+  sed -e "/database_name_here/c\define('DB_FILE', '$SQLITE_DB_FILE');
+  /username_here/c\define('DB_DIR', '$SQLITE_DB_PATH');
+  /password_here/c\define('USE_MYSQL', false);
   /'AUTH_KEY'/s/put your unique phrase here/`pwgen -c -n -1 65`/
   /'SECURE_AUTH_KEY'/s/put your unique phrase here/`pwgen -c -n -1 65`/
   /'LOGGED_IN_KEY'/s/put your unique phrase here/`pwgen -c -n -1 65`/
@@ -26,16 +23,22 @@ if [ ! -f /usr/share/nginx/www/wp-config.php ]; then
   /'NONCE_SALT'/s/put your unique phrase here/`pwgen -c -n -1 65`/" /usr/share/nginx/www/wp-config-sample.php > /usr/share/nginx/www/wp-config.php
 
   # Download nginx helper plugin
-  curl -O `curl -i -s https://wordpress.org/plugins/nginx-helper/ | egrep -o "https://downloads.wordpress.org/plugin/[^']+"`
+  curl -O `curl -i -s https://wordpress.org/plugins/nginx-helper/ | egrep -o "https://downloads.wordpress.org/plugin/[^\"]+"`
   unzip -o nginx-helper.*.zip -d /usr/share/nginx/www/wp-content/plugins
   chown -R www-data:www-data /usr/share/nginx/www/wp-content/plugins/nginx-helper
+
+  # Download sqlite integration plugin
+  curl -O `curl -i -s https://wordpress.org/plugins/sqlite-integration/ | egrep -o "https://downloads.wordpress.org/plugin/[^\"]+"`
+  unzip -o sqlite-integration.*.zip -d /usr/share/nginx/www/wp-content/plugins
+  cp -a /usr/share/nginx/www/wp-content/plugins/sqlite-integration/db.php /usr/share/nginx/www/wp-content
+  chown -R www-data:www-data /usr/share/nginx/www/wp-content/plugins/sqlite-integration
 
   # Activate nginx plugin once logged in
   cat << ENDL >> /usr/share/nginx/www/wp-config.php
 \$plugins = get_option( 'active_plugins' );
 if ( count( \$plugins ) === 0 ) {
   require_once(ABSPATH .'/wp-admin/includes/plugin.php');
-  \$pluginsToActivate = array( 'nginx-helper/nginx-helper.php' );
+  \$pluginsToActivate = array( 'nginx-helper/nginx-helper.php', 'sqlite-integration/sqlite-integration.php' );
   foreach ( \$pluginsToActivate as \$plugin ) {
     if ( !in_array( \$plugin, \$plugins ) ) {
       activate_plugin( '/usr/share/nginx/www/wp-content/plugins/' . \$plugin );
@@ -44,12 +47,9 @@ if ( count( \$plugins ) === 0 ) {
 }
 ENDL
 
+  touch /usr/share/nginx/www/wordpress.db
+  chown www-data:www-data /usr/share/nginx/www/wordpress.db
   chown www-data:www-data /usr/share/nginx/www/wp-config.php
-
-  mysqladmin -u root password $MYSQL_PASSWORD
-  mysql -uroot -p$MYSQL_PASSWORD -e "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '$MYSQL_PASSWORD' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-  mysql -uroot -p$MYSQL_PASSWORD -e "CREATE DATABASE wordpress; GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress'@'localhost' IDENTIFIED BY '$WORDPRESS_PASSWORD'; FLUSH PRIVILEGES;"
-  killall mysqld
 fi
 
 # start all the services
